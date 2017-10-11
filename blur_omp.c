@@ -4,6 +4,7 @@
 #include <omp.h>
 
 
+
 int read_BMP(char* filename, unsigned char *info, unsigned char **dataR, unsigned char **dataG, unsigned char **dataB, int *size, int *width, int *height, int *offset, int *row_padded)
 {
 	int i = 0, j, k, read_bytes, h, w, o, p;
@@ -26,41 +27,19 @@ int read_BMP(char* filename, unsigned char *info, unsigned char **dataR, unsigne
 	}
 
 
-
 	// extract image data from header
-	//#pragma omp parallel
-	//	{
-	//#pragma omp sections
-	//		{
-	//#pragma omp section
 	*width = *(int*)&info[18];
-	//#pragma omp section
 	*height = *(int*)&info[22];
-	//#pragma omp section
 	*size = *(int*)&info[2];
-	//#pragma omp section
 	*offset = *(int*)&info[10];
-	//#pragma omp section
 	*row_padded = (*width*3 + 3) & (~3);
-	//	}
-
-
-
 
 
 	//printf ("Filename: %s, Width: %d, Row_padded: %d, Height: %d, Size:  %d, Offset: %d\n", filename, *width, *row_padded, *height, *size, *offset);
-	//#pragma omp sections
-	//	{
-	//#pragma omp section
 	w = *width;
-	//#pragma omp section
 	p = *row_padded;
-	//#pragma omp section
 	h = *height;
-	//#pragma omp section
 	o = *offset;
-	//	}
-	//}
 
 	data = (unsigned char*) malloc (p * h);
 	*dataR = (unsigned char*) malloc (w * h);
@@ -75,7 +54,7 @@ int read_BMP(char* filename, unsigned char *info, unsigned char **dataR, unsigne
 		free (data);
 		return -1;
 	}
-	//#pragma omp parallel for private(k, p, i)
+	
 	for (k = 0; k < h; k++)
 	{
 		i = k * p;
@@ -108,39 +87,29 @@ int write_BMP(char* filename, float *dataB, float *dataG, float *dataR, unsigned
 		return -1;
 	}
 
-	//#pragma omp parallel for private(*dataB, *dataG, *dataR, valR, valB, valG, pad_size)
+
 	for (i = 0; i< width*height; i++) 
 	{
-		//#pragma omp parallel
-		//		{
 		if ( dataB[i] > 256.0f || dataR[i] > 256.0f || dataG[i] > 256.0f ){
 			printf( "Error: invalid value %f %f %f", dataB[i], dataG[i], dataR[i]);
 			return -1;
 		}
-		//#pragma omp sections
-		{
-			//#pragma omp section
-			valB = dataB[i];
-			//#pragma omp section
-			valG = dataG[i];
-			//#pragma omp section
-			valR = dataR[i];
-		}
-		//#pragma omp section
+
+		valB = dataB[i];
+		valG = dataG[i];
+		valR = dataR[i];
 		write_bytes = fwrite(&valB, sizeof( unsigned char ), 1, f );
 		if (write_bytes != 1)
 		{
 			printf ("Error at write: i = %d %d\n", i, valB);
 			return -1;
 		}
-		//#pragma omp section
 		write_bytes = fwrite(&valG, sizeof( unsigned char ), 1, f );
 		if (write_bytes != 1)
 		{
 			printf ("Error at write: i = %d %d\n", i, valG);
 			return -1;
 		}
-		//#pragma omp section
 		write_bytes = fwrite(&valR, sizeof( unsigned char ), 1, f );
 		if (write_bytes != 1)
 		{
@@ -152,9 +121,8 @@ int write_BMP(char* filename, float *dataB, float *dataG, float *dataR, unsigned
 			pad_size = row_padded - width *3 ;
 			while( pad_size-- > 0 ) {
 				fwrite(&null_byte, sizeof( unsigned char), 1, f );
-				//				}
+			}
 		}
-	}		
 	}
 
 	fclose (f);
@@ -164,11 +132,8 @@ int write_BMP(char* filename, float *dataB, float *dataG, float *dataR, unsigned
 
 
 float convolve(const float *kernel, const float *buffer, const int ksize) {
-	//	#pragma omp parallel
-	//{
 	float sum = 0.0f;
 	int i;
-	//#pragma omp parallel for schedule(static) 
 	for(i=0; i<ksize; i++) 
 	{
 		sum += kernel[i]*buffer[i];
@@ -179,21 +144,22 @@ float convolve(const float *kernel, const float *buffer, const int ksize) {
 
 void gaussian_blur(unsigned char *src, float *dst, int width, int height, float sigma, int ksize)
 {
-
 	int x, y, i, x1, y1;
 
 	int halfksize = ksize / 2;
 	float sum = 0.f, t;
-	float *kernel, *buffer;
+	float *kernel, *buffer, *buffer2;
 
 
 
 	// create Gaussian kernel
 	kernel = (float*)malloc(ksize * sizeof(float));
 	buffer = (float*)malloc(ksize * sizeof(float));
-	if (!kernel || !buffer)
+	buffer2 = (float*)malloc(ksize * sizeof(float));
+
+	if (!kernel || !buffer || !buffer2)
 	{
-		//printf ("Error in memory allocation!\n");
+		printf ("Error in memory allocation!\n");
 		return;
 	}
 
@@ -205,48 +171,62 @@ void gaussian_blur(unsigned char *src, float *dst, int width, int height, float 
 				dst[y*width + x] = src[y*width + x];
 		return;
 	}
-	//#pragma omp parallel
-	//{
-	//#pragma omp sections
-	//{
 
-	//#pragma omp section
+
 	//compute the Gaussian kernel values
-	for (i = 0; i < ksize; i++)
+#pragma omp parallel sections
 	{
-		x = i - halfksize;
-		t = expf(- x * x/ (2.0f * sigma * sigma)) / (sqrt(2.0f * M_PI) * sigma);
-		kernel[i] = t;
-		sum += t;
+#pragma omp section
+		{
+			for (i = 0; i < ksize; i++)
+			{
+				x = i - halfksize;
+				t = expf(- x * x/ (2.0f * sigma * sigma)) / (sqrt(2.0f * M_PI) * sigma);
+				kernel[i] = t;
+				sum += t;
+			}
+			for (i = 0; i < ksize; i++)
+			{
+				kernel[i] /= sum;
+				//printf ("Kernel [%d] = %f\n", i, kernel[i]);
+			}
+		}
+
+
+		// blur each row
+#pragma omp section
+		{
+			for (y = 0; y < height; y++)
+			{
+				for (x1 = 0; x1 < halfksize  ; x1++)
+				{
+					buffer[x1] = (float) src[y*width];
+				}
+
+				for (x1 = halfksize; x1 < ksize-1; x1++)
+				{
+					buffer[x1] = (float) src[y*width + x1-halfksize];
+				}
+			}
+		}
+		// blur each column
+#pragma omp section
+		{
+			for (x = 0; x < width; x++)
+			{
+				for (y1 = 0; y1 < halfksize  ; y1++) 
+				{
+					buffer2[y1] = dst[0*width + x];
+				}
+				for (y1=halfksize; y1 < ksize-1; y1++)
+				{ 
+					buffer2[y1] = dst[(y1-halfksize)*width + x];
+				}
+			}
+		}
 	}
-	//#pragma omp section
-	for (i = 0; i < ksize; i++)
-	{
-		kernel[i] /= sum;
-		//printf ("Kernel [%d] = %f\n", i, kernel[i]);
-	}
-
-
-
-	// blur each row
-	for (y = 0; y < height; y++)
-	{
-		#pragma omp parallel
-		{
-		#pragma omp sections
-		{
-		#pragma omp section
-		for (x1 = 0; x1 < halfksize  ; x1++)
-		{
-			buffer[x1] = (float) src[y*width];
-		}
-		#pragma omp section
-		for (x1 = halfksize; x1 < ksize-1; x1++)
-		{
-			buffer[x1] = (float) src[y*width + x1-halfksize];
-		}  
-		}
-		}
+//#pragma omp parallel for schedule (static) collapse(2)
+	for(y = 0; y < height; y++){                
 		for (x1 = 0; x1 < width; x1++)
 		{
 			i = (x1+ksize-1)%ksize;
@@ -263,46 +243,24 @@ void gaussian_blur(unsigned char *src, float *dst, int width, int height, float 
 			dst[y*width + x1] = convolve(kernel, buffer, ksize);
 		}
 	}
-
-
-	// blur each column
-
-	for (x = 0; x < width; x++)
-	{
-		#pragma omp parallel
-		{
-		#pragma omp sections
-		{
-		#pragma omp section
-		for (y1 = 0; y1 < halfksize  ; y1++) 
-
-		{
-			buffer[y1] = dst[0*width + x];
-		}
-
-		//#pragma omp parallel for private (y1)
-		#pragma omp section
-		for (y1=halfksize; y1 < ksize-1; y1++)
-		{ 
-			buffer[y1] = dst[(y1-halfksize)*width + x];
-		}
-		}
-		}
+//#pragma omp parallel for schedule (static) collapse(2)
+	for (x = 0; x < width; x++){
 		for (y1 = 0; y1 < height; y1++)
 		{
 			i = (y1+ksize-1)%ksize;
 			if(y1 < height - halfksize)
 			{
-				buffer[i] = dst[(y1+halfksize)*width + x];
+				buffer2[i] = dst[(y1+halfksize)*width + x];
 			}
 			else
 			{
-				buffer[i] = dst[(height-1)*width + x];
+				buffer2[i] = dst[(height-1)*width + x];
 			}
 
-			dst[y1*width + x] = convolve(kernel, buffer, ksize);
+			dst[y1*width + x] = convolve(kernel, buffer2, ksize);
 		}
 	}
+
 
 	// clean up
 	free(kernel);
@@ -318,9 +276,7 @@ int main(int argc, char ** argv)
 	int blur_size, ret_code = 0, size, width, height, offset, row_padded;
 	char *in_filename, *out_filename;
 	float* dstB, *dstR, *dstG, sigma;
-
-	omp_set_nested(1);
-	//omp_set_dynamic(0);
+	//	omp_set_nested(1);
 
 	if (argc != 5)
 	{
@@ -340,28 +296,18 @@ int main(int argc, char ** argv)
 		return -1;
 	}
 
-	//#pragma omp parallel
-	//	{
-	//#pragma omp sections
-	//{
-	//#pragma omp section
+
 	dstB = (float*)malloc (width*height* sizeof(float));
-	//#pragma omp section
 	dstR = (float*)malloc (width*height* sizeof(float));
-	//#pragma omp section
 	dstG = (float*)malloc (width*height* sizeof(float));
-	//}
-#pragma omp parallel num_threads(3)
+#pragma omp parallel sections 
 	{
-#pragma omp sections
-		{
 #pragma omp section
-			gaussian_blur (dataB, dstB, width, height, sigma, blur_size);
+		gaussian_blur (dataB, dstB, width, height, sigma, blur_size);
 #pragma omp section
-			gaussian_blur (dataR, dstR, width, height, sigma, blur_size);
+		gaussian_blur (dataR, dstR, width, height, sigma, blur_size);
 #pragma omp section
-			gaussian_blur (dataG, dstG, width, height, sigma, blur_size);
-		}
+		gaussian_blur (dataG, dstG, width, height, sigma, blur_size);
 	}
 
 	ret_code = write_BMP (out_filename, dstB, dstG, dstR, info, offset, width, row_padded, height);
@@ -376,4 +322,3 @@ int main(int argc, char ** argv)
 
 	return ret_code;
 }
-
